@@ -1,0 +1,859 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Earthy Video Player – Calm Desk Companion</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background: #090d16;
+            font-family: system-ui, -apple-system, sans-serif;
+            color: #f8fafc;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            padding: 10px;
+        }
+        .app {
+            width: 94vw;
+            max-width: 980px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            transition: opacity 0.4s ease;
+        }
+        :fullscreen { background: #090d16; padding: 10px; }
+        :fullscreen .app { width: 100%; max-width: 100%; height: 100%; }
+        :fullscreen .player { flex: 1; height: auto !important; }
+        .app.mobile-fs {
+            position: fixed;
+            inset: 0;
+            width: 100%;
+            max-width: 100%;
+            height: 100%;
+            z-index: 9999;
+            background: #090d16;
+            padding: 8px;
+        }
+        .app.mobile-fs .player { flex: 1; height: auto; }
+        .app.desk-mode .bar,
+        .app.desk-mode .controls-toggle,
+        .app.desk-mode .controls-panel { opacity: 0; pointer-events: none; transition: opacity 0.5s ease; }
+        .app.desk-mode.show-controls .bar,
+        .app.desk-mode.show-controls .controls-toggle,
+        .app.desk-mode.show-controls .controls-panel { opacity: 1; pointer-events: auto; }
+
+        .controls-toggle {
+            align-self: flex-start;
+            background: #1e293b;
+            border: 1px solid #334155;
+            color: #e2e8f0;
+            padding: 6px 12px;
+            border-radius: 7px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .controls-toggle:hover { background: #334155; }
+        .controls-panel {
+            display: none;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .controls-panel.open { display: flex; }
+
+        .bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: #1e293b;
+            padding: 6px 10px;
+            border-radius: 7px;
+            border: 1px solid #334155;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .group { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+        label {
+            font-size: 10px;
+            font-weight: 600;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+        select, input[type="file"], input[type="range"], input[type="text"], input[type="number"] {
+            background: #0f172a;
+            color: #fff;
+            border: 1px solid #475569;
+            border-radius: 4px;
+            padding: 3px 6px;
+            font-size: 12px;
+        }
+        input[type="range"] { width: 70px; height: 4px; accent-color: #0284c7; padding: 0; }
+        .val { font-size: 11px; color: #38bdf8; min-width: 26px; }
+        input[type="file"]::file-selector-button {
+            background: #334155;
+            color: #fff;
+            border: none;
+            padding: 2px 5px;
+            border-radius: 3px;
+            font-size: 11px;
+            margin-right: 4px;
+        }
+        .player {
+            position: relative;
+            width: 100%;
+            height: 540px;
+            background: #000;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid #334155;
+        }
+        .slide {
+            position: absolute;
+            inset: 0;
+            opacity: 0;
+            transition: opacity 1.3s ease;
+            z-index: 1;
+        }
+        .slide.active { opacity: 1; z-index: 2; }
+        .slide video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scale(1);
+            will-change: transform;
+        }
+        .caption {
+            position: absolute;
+            bottom: 12px;
+            left: 12px;
+            background: rgba(15,23,42,0.9);
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            border: 1px solid #334155;
+            z-index: 3;
+        }
+        button {
+            background: #334155;
+            border: 1px solid #64748b;
+            color: #fff;
+            padding: 5px 9px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        button:hover { background: #475569; }
+        button.primary { background: #0284c7; border-color: #38bdf8; }
+        button.primary:hover { background: #0369a1; }
+        button.small { padding: 3px 6px; font-size: 11px; }
+        .counter, .status { font-size: 12px; color: #94a3b8; }
+        .timer-status { color: #38bdf8; font-weight: 600; }
+        .suggestions { font-size: 11px; color: #64748b; }
+        .suggestions button { margin: 0 2px; padding: 2px 5px; font-size: 10px; }
+        .storage-info { font-size: 11px; color: #64748b; margin-top: 4px; }
+    </style>
+</head>
+<body>
+<div class="app" id="app">
+    <button class="controls-toggle" id="controlsToggle">Controls ▾</button>
+    <div class="controls-panel" id="controlsPanel">
+        <div class="bar">
+            <div class="group">
+                <label>Audio</label>
+                <input type="file" id="audioFile" accept="audio/*">
+                <button id="clearAudio" class="small">Clear audio</button>
+            </div>
+            <div class="group">
+                <label>Category</label>
+                <select id="category"></select>
+                <button id="clearCat" class="small" title="Clear personal videos in this category">Clear</button>
+            </div>
+            <div class="group">
+                <label>Zoom</label>
+                <input type="range" id="zoom" min="1.1" max="1.8" step="0.1" value="1.3">
+                <span class="val" id="zoomVal">1.3x</span>
+            </div>
+            <div class="group">
+                <label>Speed</label>
+                <input type="range" id="speed" min="3" max="15" step="1" value="6">
+                <span class="val" id="speedVal">6s</span>
+            </div>
+            <div class="status" id="status">Loading…</div>
+        </div>
+
+        <div class="bar">
+            <div class="group">
+                <label>Add videos</label>
+                <input type="file" id="videoFiles" accept="video/*" multiple>
+                <input type="text" id="newCatName" placeholder="Category name" style="width:120px">
+                <button id="addVideos" class="primary small">Add to category</button>
+            </div>
+            <div class="group">
+                <label>Desk</label>
+                <button id="deskMode" class="small">Desk Mode</button>
+                <button id="aiPrompt" class="small" title="Copy AI video prompt">AI Prompt</button>
+            </div>
+            <div class="group">
+                <label>Break timer</label>
+                <input type="number" id="timerMins" min="1" max="120" value="25" style="width:50px">
+                <button id="startTimer" class="small">Start</button>
+                <span class="timer-status" id="timerStatus"></span>
+            </div>
+            <div class="group">
+                <label>Bundle</label>
+                <input type="text" id="bundleCode" placeholder="Access code" style="width:100px">
+                <button id="unlockBundle" class="small">Unlock</button>
+            </div>
+        </div>
+
+        <div class="suggestions" id="suggestions">
+            Quick categories:
+        </div>
+        <div class="storage-info" id="storageInfo">Checking storage…</div>
+    </div>
+
+    <div class="player" id="player"></div>
+
+    <div class="bar">
+        <div class="group">
+            <button id="prev">❮</button>
+            <button id="play" class="primary">Pause</button>
+            <button id="next">❯</button>
+            <button id="mute">🔊</button>
+        </div>
+        <div class="group">
+            <button id="fs">⛶</button>
+            <span class="counter" id="counter">Clip 0 of 0</span>
+        </div>
+    </div>
+</div>
+<audio id="audio" loop></audio>
+
+<script>
+let slidesData = {};
+let personalData = {};
+let unlockedBundles = {};
+let category = "";
+let index = 0;
+let timer = null;
+let playing = true;
+let muted = false;
+let duration = 6000;
+let zoom = 1.3;
+let deskMode = false;
+let hideTimeout = null;
+let wakeLock = null;
+let breakTimer = null;
+let breakEnd = null;
+let controlsOpen = false;
+const objectUrls = new Set();
+
+const player = document.getElementById("player");
+const catSelect = document.getElementById("category");
+const playBtn = document.getElementById("play");
+const counter = document.getElementById("counter");
+const statusEl = document.getElementById("status");
+const audio = document.getElementById("audio");
+const muteBtn = document.getElementById("mute");
+const app = document.getElementById("app");
+const controlsToggle = document.getElementById("controlsToggle");
+const controlsPanel = document.getElementById("controlsPanel");
+const storageInfo = document.getElementById("storageInfo");
+
+// IndexedDB setup
+const DB_NAME = "EarthyVideoPlayerDB";
+const STORE_NAME = "personalClips";
+
+function openDB() {
+    return new Promise((resolve, reject) => {
+        const req = indexedDB.open(DB_NAME, 1);
+        req.onupgradeneeded = e => {
+            const db = e.target.result;
+            if (!db.objectStoreNames.contains(STORE_NAME)) {
+                db.createObjectStore(STORE_NAME);
+            }
+        };
+        req.onsuccess = e => resolve(e.target.result);
+        req.onerror = e => reject(e.target.error);
+    });
+}
+
+async function loadPersonal() {
+    try {
+        const db = await openDB();
+        return new Promise((resolve) => {
+            const tx = db.transaction(STORE_NAME, "readonly");
+            const store = tx.objectStore(STORE_NAME);
+            const req = store.get("data");
+            req.onsuccess = () => resolve(req.result || {});
+            req.onerror = () => resolve({});
+        });
+    } catch {
+        return {};
+    }
+}
+
+async function savePersonal(data) {
+    try {
+        const db = await openDB();
+        const tx = db.transaction(STORE_NAME, "readwrite");
+        const store = tx.objectStore(STORE_NAME);
+        store.put(data, "data");
+    } catch (e) {
+        console.warn("Could not save personal data", e);
+    }
+}
+
+async function loadUnlocked() {
+    try {
+        const db = await openDB();
+        return new Promise((resolve) => {
+            const tx = db.transaction(STORE_NAME, "readonly");
+            const store = tx.objectStore(STORE_NAME);
+            const req = store.get("unlocked");
+            req.onsuccess = () => resolve(req.result || {});
+            req.onerror = () => resolve({});
+        });
+    } catch {
+        return {};
+    }
+}
+
+async function saveUnlocked(data) {
+    try {
+        const db = await openDB();
+        const tx = db.transaction(STORE_NAME, "readwrite");
+        const store = tx.objectStore(STORE_NAME);
+        store.put(data, "unlocked");
+    } catch (e) {
+        console.warn("Could not save unlocked bundles", e);
+    }
+}
+
+async function saveAudio(blob) {
+    try {
+        const db = await openDB();
+        const tx = db.transaction(STORE_NAME, "readwrite");
+        const store = tx.objectStore(STORE_NAME);
+        store.put(blob, "audio");
+    } catch (e) {
+        console.warn("Could not save audio", e);
+    }
+}
+
+async function loadAudio() {
+    try {
+        const db = await openDB();
+        return new Promise((resolve) => {
+            const tx = db.transaction(STORE_NAME, "readonly");
+            const store = tx.objectStore(STORE_NAME);
+            const req = store.get("audio");
+            req.onsuccess = () => resolve(req.result || null);
+            req.onerror = () => resolve(null);
+        });
+    } catch {
+        return null;
+    }
+}
+
+async function clearAudio() {
+    try {
+        const db = await openDB();
+        const tx = db.transaction(STORE_NAME, "readwrite");
+        const store = tx.objectStore(STORE_NAME);
+        store.delete("audio");
+    } catch (e) {
+        console.warn("Could not clear audio", e);
+    }
+}
+
+const BUNDLES = {
+    "NATURE-CORE": {
+        name: "Nature Calm – Core",
+        slides: [
+            { url: "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4", caption: "Flower – calm loop" },
+            { url: "https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/360/Big_Buck_Bunny_360_10s_1MB.mp4", caption: "Bunny short clip" }
+        ]
+    },
+    "TEST-CLIPS": {
+        name: "Test Clips – Sample",
+        slides: [
+            { url: "https://cdn.truefilesize.com/mp4/sample-1mb.mp4", caption: "Sample 4s clip" },
+            { url: "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4", caption: "Flower again" }
+        ]
+    },
+    "QUIET-SCENES": {
+        name: "Quiet Scenes – Sample",
+        slides: [
+            { url: "https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/360/Big_Buck_Bunny_360_10s_1MB.mp4", caption: "Quiet example" }
+        ]
+    }
+};
+
+async function updateStorageInfo() {
+    if (!navigator.storage || !navigator.storage.estimate) {
+        storageInfo.textContent = "Storage info not available in this browser";
+        return;
+    }
+    try {
+        const estimate = await navigator.storage.estimate();
+        const used = (estimate.usage / (1024 * 1024)).toFixed(1);
+        const quota = estimate.quota ? (estimate.quota / (1024 * 1024)).toFixed(0) : "unknown";
+        storageInfo.textContent = `Storage: ${used} MB used of ~${quota} MB available`;
+    } catch {
+        storageInfo.textContent = "Could not read storage info";
+    }
+}
+
+function updateQuickCategories() {
+    const container = document.getElementById("suggestions");
+    container.innerHTML = "Quick categories: ";
+    
+    const keys = Object.keys(slidesData).filter(k => k !== "demo").sort();
+    if (!keys.length) {
+        container.innerHTML += `<span style="opacity:0.6">(none yet)</span>`;
+        return;
+    }
+    
+    keys.forEach(key => {
+        const btn = document.createElement("button");
+        btn.className = "small";
+        btn.textContent = key.charAt(0).toUpperCase() + key.slice(1);
+        btn.onclick = () => {
+            document.getElementById("newCatName").value = key;
+            document.getElementById("newCatName").focus();
+        };
+        container.appendChild(btn);
+    });
+}
+
+function revokeObjectUrls() {
+    objectUrls.forEach(url => URL.revokeObjectURL(url));
+    objectUrls.clear();
+}
+
+async function loadJSON() {
+    try {
+        const res = await fetch("videos.json");
+        if (!res.ok) throw new Error("videos.json not found");
+        slidesData = await res.json();
+        statusEl.textContent = "Loaded defaults";
+    } catch (err) {
+        statusEl.textContent = "No videos.json – using personal + unlocked";
+        console.error(err);
+        slidesData = {};
+    }
+    personalData = await loadPersonal();
+    unlockedBundles = await loadUnlocked();
+    applyUnlockedBundles();
+    mergeData();
+    loadCategories();
+
+    const savedAudio = await loadAudio();
+    if (savedAudio) {
+        const audioUrl = URL.createObjectURL(savedAudio);
+        objectUrls.add(audioUrl);
+        audio.src = audioUrl;
+        audio.muted = muted;
+        audio.play().catch(() => {});
+        statusEl.textContent = "Audio restored";
+    }
+    updateStorageInfo();
+}
+
+function applyUnlockedBundles() {
+    for (const code of Object.keys(unlockedBundles)) {
+        const bundle = BUNDLES[code];
+        if (bundle && !slidesData[bundle.name]) {
+            slidesData[bundle.name] = bundle.slides;
+        }
+    }
+}
+
+function mergeData() {
+    revokeObjectUrls();
+    for (const [cat, items] of Object.entries(personalData)) {
+        if (!slidesData[cat]) slidesData[cat] = [];
+        const existingCaptions = new Set(slidesData[cat].map(i => i.caption));
+        items.forEach(item => {
+            if (item.blob && !existingCaptions.has(item.caption)) {
+                const url = URL.createObjectURL(item.blob);
+                objectUrls.add(url);
+                slidesData[cat].push({
+                    url,
+                    caption: item.caption,
+                    isPersonal: true
+                });
+            }
+        });
+    }
+}
+
+function loadCategories() {
+    catSelect.innerHTML = "";
+    const keys = Object.keys(slidesData).sort();
+    if (!keys.length) {
+        slidesData.demo = [{ 
+            url: "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4", 
+            caption: "Add your videos or unlock a bundle (try NATURE-CORE)" 
+        }];
+        keys.push("demo");
+    }
+    keys.forEach(key => {
+        const opt = document.createElement("option");
+        opt.value = key;
+        opt.textContent = key.charAt(0).toUpperCase() + key.slice(1);
+        catSelect.appendChild(opt);
+    });
+    if (!category || !keys.includes(category)) category = keys[0];
+    catSelect.value = category;
+    build();
+    updateQuickCategories();
+}
+
+function build() {
+    player.innerHTML = "";
+    index = 0;
+    const items = slidesData[category] || [];
+    items.forEach(item => {
+        const slide = document.createElement("div");
+        slide.className = "slide";
+        const video = document.createElement("video");
+        video.src = item.url;
+        video.muted = true;
+        video.playsInline = true;
+        video.loop = true;
+        video.preload = "auto";
+        video.onerror = () => { 
+            video.style.opacity = "0.3"; 
+            console.warn("Video failed:", item.url); 
+        };
+        slide.appendChild(video);
+        if (item.caption) {
+            const cap = document.createElement("div");
+            cap.className = "caption";
+            cap.textContent = item.caption;
+            slide.appendChild(cap);
+        }
+        player.appendChild(slide);
+    });
+    if (items.length) show(0, true);
+    updateCounter();
+    start();
+}
+
+function applyZoom(video, origin = "center center") {
+    video.style.transition = "none";
+    video.style.transformOrigin = origin;
+    video.style.transform = "scale(1)";
+    void video.offsetWidth;
+    video.style.transition = `transform ${duration / 1000}s linear`;
+    video.style.transform = `scale(${zoom})`;
+}
+
+function pauseAllVideos() {
+    player.querySelectorAll("video").forEach(v => {
+        v.pause();
+    });
+}
+
+function show(i, init = false) {
+    const slides = player.querySelectorAll(".slide");
+    if (!slides.length) return;
+    const prev = slides[index];
+    if (prev && !init) {
+        const video = prev.querySelector("video");
+        if (video) {
+            video.style.transition = "none";
+            video.style.transform = getComputedStyle(video).transform;
+            video.pause();
+        }
+        prev.classList.remove("active");
+    }
+    index = (i + slides.length) % slides.length;
+    const next = slides[index];
+    const origins = ["center center", "top left", "bottom right", "top right", "bottom left"];
+    const origin = origins[Math.floor(Math.random() * origins.length)];
+    next.className = "slide active";
+    const video = next.querySelector("video");
+    if (video) {
+        video.currentTime = 0;
+        applyZoom(video, origin);
+        video.play().catch(() => {});
+    }
+    updateCounter();
+}
+
+function next() { show(index + 1); }
+function prev() { show(index - 1); }
+function updateCounter() {
+    const len = (slidesData[category] || []).length;
+    counter.textContent = `Clip ${index + 1} of ${len}`;
+}
+function start() {
+    clearInterval(timer);
+    if (playing && (slidesData[category] || []).length > 1) {
+        timer = setInterval(next, duration);
+    }
+}
+function togglePlay() {
+    playing = !playing;
+    playBtn.textContent = playing ? "Pause" : "Play";
+    playBtn.classList.toggle("primary", playing);
+    if (!playing) {
+        pauseAllVideos();
+    } else {
+        const active = player.querySelector(".slide.active video");
+        if (active) active.play().catch(() => {});
+    }
+    start();
+}
+
+// Controls dropdown
+controlsToggle.onclick = () => {
+    controlsOpen = !controlsOpen;
+    controlsPanel.classList.toggle("open", controlsOpen);
+    controlsToggle.textContent = controlsOpen ? "Controls ▴" : "Controls ▾";
+    if (controlsOpen) updateStorageInfo();
+};
+
+// Personal video handling
+document.getElementById("addVideos").onclick = async () => {
+    const files = document.getElementById("videoFiles").files;
+    let catName = document.getElementById("newCatName").value.trim();
+    if (!catName) catName = category || "personal";
+    if (!files.length) {
+        statusEl.textContent = "Select videos first";
+        return;
+    }
+    if (!personalData[catName]) personalData[catName] = [];
+    statusEl.textContent = `Adding ${files.length} video(s)…`;
+    for (const file of files) {
+        personalData[catName].push({
+            blob: file,
+            caption: file.name.replace(/\.[^.]+$/, "")
+        });
+    }
+    await savePersonal(personalData);
+    mergeData();
+    loadCategories();
+    category = catName;
+    catSelect.value = category;
+    build();
+    statusEl.textContent = `Added to "${catName}"`;
+    document.getElementById("videoFiles").value = "";
+    document.getElementById("newCatName").value = "";
+    updateStorageInfo();
+    updateQuickCategories();
+};
+
+document.getElementById("clearCat").onclick = async () => {
+    if (!confirm(`Clear personal videos from "${category}"? (Default / unlocked videos stay)`)) return;
+    if (personalData[category]) {
+        delete personalData[category];
+        await savePersonal(personalData);
+        location.reload();
+    }
+};
+
+// Bundle unlock
+document.getElementById("unlockBundle").onclick = async () => {
+    const code = document.getElementById("bundleCode").value.trim().toUpperCase();
+    if (!code) return;
+    const bundle = BUNDLES[code];
+    if (!bundle) {
+        statusEl.textContent = "Invalid code";
+        return;
+    }
+    unlockedBundles[code] = true;
+    await saveUnlocked(unlockedBundles);
+    applyUnlockedBundles();
+    mergeData();
+    loadCategories();
+    category = bundle.name;
+    catSelect.value = category;
+    build();
+    statusEl.textContent = `Unlocked: ${bundle.name}`;
+    document.getElementById("bundleCode").value = "";
+};
+
+// Desk mode
+document.getElementById("deskMode").onclick = async () => {
+    deskMode = !deskMode;
+    app.classList.toggle("desk-mode", deskMode);
+    document.getElementById("deskMode").textContent = deskMode ? "Exit Desk" : "Desk Mode";
+    if (deskMode) {
+        controlsOpen = false;
+        controlsPanel.classList.remove("open");
+        controlsToggle.textContent = "Controls ▾";
+        await requestWakeLock();
+        scheduleHide();
+        if (!document.fullscreenElement && document.fullscreenEnabled) {
+            app.requestFullscreen().catch(() => app.classList.add("mobile-fs"));
+        } else if (!document.fullscreenElement) {
+            app.classList.add("mobile-fs");
+        }
+    } else {
+        releaseWakeLock();
+        clearTimeout(hideTimeout);
+        app.classList.remove("show-controls", "mobile-fs");
+    }
+};
+
+function scheduleHide() {
+    clearTimeout(hideTimeout);
+    hideTimeout = setTimeout(() => {
+        if (deskMode) app.classList.remove("show-controls");
+    }, 5000);
+}
+
+function showControls() {
+    if (!deskMode) return;
+    app.classList.add("show-controls");
+    scheduleHide();
+}
+
+["mousemove", "touchstart", "keydown"].forEach(ev => {
+    document.addEventListener(ev, showControls);
+});
+
+async function requestWakeLock() {
+    try {
+        if ("wakeLock" in navigator) {
+            wakeLock = await navigator.wakeLock.request("screen");
+            wakeLock.addEventListener("release", () => { wakeLock = null; });
+        }
+    } catch (e) { console.warn("Wake Lock failed", e); }
+}
+
+function releaseWakeLock() {
+    if (wakeLock) {
+        wakeLock.release().catch(() => {});
+        wakeLock = null;
+    }
+}
+
+// AI Prompt helper (adapted for video generators)
+document.getElementById("aiPrompt").onclick = () => {
+    const idea = prompt("Describe the place or scene you want (e.g. 'serene mountain cabin at dawn'):", "peaceful tropical beach at golden hour");
+    if (!idea) return;
+    const promptText = `Cinematic, photorealistic video, highly detailed, serene ${idea}, soft natural lighting, calm and peaceful atmosphere, slow gentle movement, no people, no text, no logos, high quality, tranquil mood, looping feel`;
+    navigator.clipboard.writeText(promptText).then(() => {
+        statusEl.textContent = "AI video prompt copied — paste into any video generator";
+        setTimeout(() => statusEl.textContent = "", 4000);
+    }).catch(() => {
+        alert("Prompt:\n\n" + promptText);
+    });
+};
+
+// Break timer
+document.getElementById("startTimer").onclick = () => {
+    const mins = parseInt(document.getElementById("timerMins").value) || 25;
+    if (breakTimer) {
+        clearInterval(breakTimer);
+        breakTimer = null;
+        document.getElementById("timerStatus").textContent = "";
+        document.getElementById("startTimer").textContent = "Start";
+        return;
+    }
+    breakEnd = Date.now() + mins * 60 * 1000;
+    document.getElementById("startTimer").textContent = "Stop";
+    updateTimerDisplay();
+    breakTimer = setInterval(updateTimerDisplay, 1000);
+};
+
+function updateTimerDisplay() {
+    if (!breakEnd) return;
+    const left = Math.max(0, breakEnd - Date.now());
+    if (left <= 0) {
+        clearInterval(breakTimer);
+        breakTimer = null;
+        document.getElementById("timerStatus").textContent = "Break time!";
+        document.getElementById("startTimer").textContent = "Start";
+        player.style.outline = "4px solid #38bdf8";
+        setTimeout(() => player.style.outline = "", 3000);
+        return;
+    }
+    const m = Math.floor(left / 60000);
+    const s = Math.floor((left % 60000) / 1000);
+    document.getElementById("timerStatus").textContent = `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+// Existing event handlers
+catSelect.onchange = e => { category = e.target.value; build(); };
+document.getElementById("zoom").oninput = e => {
+    zoom = +e.target.value;
+    document.getElementById("zoomVal").textContent = zoom.toFixed(1) + "x";
+    const video = player.querySelector(".slide.active video");
+    if (video) video.style.transform = `scale(${zoom})`;
+};
+document.getElementById("speed").oninput = e => {
+    duration = Math.max(3, +e.target.value) * 1000;
+    document.getElementById("speedVal").textContent = (duration / 1000) + "s";
+    const video = player.querySelector(".slide.active video");
+    if (video) video.style.transition = `transform ${duration / 1000}s linear`;
+    start();
+};
+document.getElementById("next").onclick = () => { next(); start(); };
+document.getElementById("prev").onclick = () => { prev(); start(); };
+playBtn.onclick = togglePlay;
+document.getElementById("fs").onclick = () => {
+    if (document.fullscreenEnabled && !document.fullscreenElement) {
+        app.requestFullscreen().catch(() => app.classList.toggle("mobile-fs"));
+    } else if (document.fullscreenElement) {
+        document.exitFullscreen();
+    } else {
+        app.classList.toggle("mobile-fs");
+    }
+};
+
+// Audio handling with persistence
+document.getElementById("audioFile").onchange = async e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const audioUrl = URL.createObjectURL(file);
+    objectUrls.add(audioUrl);
+    audio.src = audioUrl;
+    audio.muted = muted;
+    audio.play().catch(() => {});
+    await saveAudio(file);
+    statusEl.textContent = "Audio saved";
+    updateStorageInfo();
+};
+
+document.getElementById("clearAudio").onclick = async () => {
+    audio.src = "";
+    await clearAudio();
+    statusEl.textContent = "Audio cleared";
+    updateStorageInfo();
+};
+
+muteBtn.onclick = () => {
+    muted = !muted;
+    audio.muted = muted;
+    muteBtn.textContent = muted ? "🔇" : "🔊";
+};
+
+document.addEventListener("keydown", e => {
+    if (["INPUT", "SELECT", "TEXTAREA"].includes(e.target.tagName)) return;
+    if (e.code === "ArrowRight") { next(); start(); }
+    if (e.code === "ArrowLeft") { prev(); start(); }
+    if (e.code === "Space") { e.preventDefault(); togglePlay(); }
+    if (e.code === "KeyM") muteBtn.click();
+    if (e.code === "KeyF") document.getElementById("fs").click();
+    if (e.code === "KeyD") document.getElementById("deskMode").click();
+});
+
+document.addEventListener("visibilitychange", () => {
+    if (deskMode && document.visibilityState === "visible") requestWakeLock();
+});
+
+loadJSON();
+</script>
+</body>
+</html>
