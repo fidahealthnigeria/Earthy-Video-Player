@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Earthy Video Player – Calm Desk Companion</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background: #090d16;
+            font-family: system-ui, -apple-system, sans-serif;
+            color: #f8fafc;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            padding: 10px;
+        }
+        .app {
+            width: 94vw;
+            max-width: 980px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            transition: opacity 0.4s ease;
+        }
+        :fullscreen { background: #090d16; padding: 10px; }
+        :fullscreen .app { width: 100%; max-width: 100%; height: 100%; }
+        :fullscreen .player { flex: 1; height: auto !important; }
+        .app.mobile-fs {
+            position: fixed;
+            inset: 0;
+            width: 100%;
+            max-width: 100%;
+            height: 100%;
+            z-index: 9999;
+            background: #090d16;
+            padding: 8px;
+        }
+        .app.mobile-fs .player { flex: 1; height: auto; }
+        .app.desk-mode .bar,
+        .app.desk-mode .controls-toggle,
+        .app.desk-mode .controls-panel { opacity: 0; pointer-events: none; transition: opacity 0.5s ease; }
+        .app.desk-mode.show-controls .bar,
+        .app.desk-mode.show-controls .controls-toggle,
+        .app.desk-mode.show-controls .controls-panel { opacity: 1; pointer-events: auto; }
+
+        .controls-toggle {
+            align-self: flex-start;
+            background: #1e293b;
+            border: 1px solid #334155
